@@ -79,103 +79,101 @@ function extractMethod(obj, key) {
     return (...args) => method.call(obj, ...args);
 }
 
-function closeSubscription(observer) {
-
-    observer._observer = undefined;
-    cancelSubscription(observer);
-}
-
-function isSubscription(x) {
-
-    return Object(x) === x && typeof x.unsubscribe === "function";
-}
-
-function subscriptionCancel(subscription) {
+function disposeSubscription(subscription) {
 
     subscription._done = true;
 
-    let cleanup = subscription._cleanup;
+    let dispose = subscription._dispose;
 
-    subscription._cleanup = undefined;
-    subscription._push = undefined;
-    subscription._error = undefined;
-    subscription._complete = undefined;
+    subscription._dispose = undefined;
+    subscription._onNext = undefined;
+    subscription._onError = undefined;
+    subscription._onComplete = undefined;
 
-    if (cleanup)
-        cleanup();
+    if (dispose)
+        dispose();
 }
 
-function subscriptionPush(subscription, value) {
+function subscriptionNext(subscription) {
 
-    if (subscription._done)
-        return;
+    return function onNext(value) {
 
-    subscription._push.call(undefined, value);
-}
-
-function subscriptionError(subscription, value) {
-
-    if (subscription._done)
-        throw value;
-
-    subscription._done = true;
-
-    try {
-
-        if (!subscription._error)
-            throw value;
-
-        subscription._error.call(undefined, value);
-
-    } finally {
-
-        subscriptionCancel(subscription);
-    }
-}
-
-function subscriptionComplete(subscription, value) {
-
-    if (subscription._done)
-        return;
-
-    subscription._done = true;
-
-    try {
-
-        if (!subscription._complete)
+        if (subscription._done)
             return;
 
-        subscription._complete.call(undefined, value);
+        subscription._onNext.call(undefined, value);
+    };
+}
 
-    } finally {
+function subscriptionError(subscription) {
 
-        subscriptionCancel(subscription);
-    }
+    return function onError(value) {
+
+        if (subscription._done)
+            throw value;
+
+        subscription._done = true;
+
+        try {
+
+            if (!subscription._onError)
+                throw value;
+
+            subscription._onError.call(undefined, value);
+
+        } finally {
+
+            disposeSubscription(subscription);
+        }
+    };
+}
+
+function subscriptionComplete(subscription) {
+
+    return function onComplete(value) {
+
+        if (subscription._done)
+            return;
+
+        subscription._done = true;
+
+        try {
+
+            if (!subscription._onComplete)
+                return;
+
+            subscription._onComplete.call(undefined, value);
+
+        } finally {
+
+            disposeSubscription(subscription);
+        }
+    };
 }
 
 class Subscription {
 
-    constructor(push, error, complete) {
+    constructor(onNext, onError, onComplete) {
 
-        if (typeof push !== "function")
-            throw new TypeError(push + " is not a function");
+        if (typeof onNext !== "function")
+            throw new TypeError(onNext + " is not a function");
 
-        if (error != null && typeof error !== "function")
-            throw new TypeError(error + " is not a function");
+        if (onError != null && typeof onError !== "function")
+            throw new TypeError(onError + " is not a function");
 
-        if (complete != null && typeof complete !== "function")
-            throw new TypeError(complete + " is not a function");
+        if (onComplete != null && typeof onComplete !== "function")
+            throw new TypeError(onComplete + " is not a function");
 
         this._done = false;
-        this._cleanup = undefined;
-        this._push = push;
-        this._error = error;
-        this._complete = complete;
+        this._dispose = undefined;
+        this._onNext = onNext;
+        this._onError = onError;
+        this._onComplete = onComplete;
     }
 
     unsubscribe() {
 
-        subscriptionCancel(this);
+        disposeSubscription(this);
     }
 }
 
@@ -190,9 +188,13 @@ export class Observable {
         this._subscriber = subscriber;
     }
 
-    subscribe(push, error = null, complete = null) {
+    subscribe(onNext, onError = undefined, onComplete = undefined) {
 
-        let subscription = new Subscription(push, error, complete);
+        let subscription = new Subscription(onNext, onError, onComplete);
+
+        onNext = subscriptionNext(subscription);
+        onError = subscriptionError(subscription);
+        onComplete = subscriptionComplete(subscription);
 
         enqueueJob(_=> {
 
@@ -204,27 +206,24 @@ export class Observable {
             try {
 
                 // Call the subscriber function
-                let cleanup = this._subscriber.call(undefined,
-                    x => subscriptionPush(subscription, x),
-                    x => subscriptionError(subscription, x),
-                    x => subscriptionComplete(subscription, x));
+                let dispose = this._subscriber.call(undefined, onNext, onError, onComplete);
 
-                if (cleanup != null && typeof cleanup !== "function")
-                    cleanup = extractMethod(cleanup, "unsubscribe");
+                if (dispose != null && typeof dispose !== "function")
+                    dispose = extractMethod(dispose, "unsubscribe");
 
-                subscription._cleanup = cleanup;
+                subscription._dispose = dispose;
 
             } catch (e) {
 
                 // If an error occurs during startup, then attempt to send the error
                 // to the observer
-                subscriptionError(subscription, e);
+                onError(e);
                 return;
             }
 
             // If the stream is already finished, then perform cleanup
             if (subscription._done)
-                subscriptionCancel(subscription);
+                disposeSubscription(subscription);
         });
 
         return subscription;
@@ -242,7 +241,7 @@ export class Observable {
             this.subscribe(
                 value => { fn.call(thisArg, value) },
                 reject,
-                _=> resolve(undefined));
+                resolve);
         });
     }
 
@@ -253,13 +252,13 @@ export class Observable {
 
         let C = this.constructor[Symbol.species];
 
-        return new C((push, error, complete) => this.subscribe(
+        return new C((next, error, complete) => this.subscribe(
             value => {
 
                 try { value = fn.call(thisArg, value) }
                 catch (e) { error(e); return; }
 
-                push(value);
+                next(value);
             },
             error,
             complete));
@@ -272,13 +271,13 @@ export class Observable {
 
         let C = this.constructor[Symbol.species];
 
-        return new C((push, error, complete) => this.subscribe(
+        return new C((next, error, complete) => this.subscribe(
             value => {
 
                 try { if (!fn.call(thisArg, value)) return { done: false } }
                 catch (e) { error(e); return; }
 
-                push(value);
+                next(value);
             },
             error,
             complete));
@@ -311,10 +310,10 @@ export class Observable {
         if (!method)
             throw new TypeError(x + " is not observable");
 
-        return new C((push, error, complete) => {
+        return new C((next, error, complete) => {
 
             for (let item of method.call(x))
-                push(item);
+                next(item);
 
             complete();
         });

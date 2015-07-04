@@ -2,9 +2,9 @@
 // element.
 function takeUntil(stream, control) {
 
-    return new Observable((push, error, complete) => {
+    return new Observable((next, error, complete) => {
 
-        let source = stream.subscribe(push, error, complete),
+        let source = stream.subscribe(next, error, complete),
             input = control.subscribe(complete, error, complete);
 
         return _=> {
@@ -18,7 +18,7 @@ function takeUntil(stream, control) {
 // most recent outer stream
 function switchLatest(stream) {
 
-    return new Observable((push, error, complete) => {
+    return new Observable((next, error, complete) => {
 
         let inner = null;
 
@@ -28,7 +28,7 @@ function switchLatest(stream) {
                 if (inner)
                     inner.unsubscribe();
 
-                inner = value.subscribe(push, error);
+                inner = value.subscribe(next, error);
             },
             error,
             complete);
