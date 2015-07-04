@@ -2,19 +2,12 @@
 // element.
 function takeUntil(stream, control) {
 
-    return new Observable(sink => {
+    return new Observable((push, error, complete) => {
 
-        let source = stream.subscribe(sink);
-
-        let input = control.subscribe({
-
-            next: x => sink.return(x),
-            throw: x => sink.throw(x),
-            return: x => sink.return(x),
-        });
+        let source = stream.subscribe(push, error, complete),
+            input = control.subscribe(complete, error, complete);
 
         return _=> {
-
             source.unsubscribe();
             input.unsubscribe();
         };
@@ -25,28 +18,20 @@ function takeUntil(stream, control) {
 // most recent outer stream
 function switchLatest(stream) {
 
-    return new Observable(sink => {
+    return new Observable((push, error, complete) => {
 
         let inner = null;
 
-        let outer = stream.subscribe({
-
-            next(value) {
+        let outer = stream.subscribe(
+            value => {
 
                 if (inner)
                     inner.unsubscribe();
 
-                inner = value.subscribe({
-
-                    next: x => sink.next(x),
-                    throw: x => sink.throw(x),
-                });
+                inner = value.subscribe(push, error);
             },
-
-            throw: x => sink.throw(x),
-            return: x => sink.return(x),
-
-        });
+            error,
+            complete);
 
         return _=> {
 
@@ -61,11 +46,9 @@ function switchLatest(stream) {
 // Returns an observable of DOM element events
 function listen(element, eventName) {
 
-    return new Observable(sink => {
-
-        function handler(event) { sink.next(event) }
-        element.addEventListener(eventName, handler);
-        return _=> element.removeEventListener(eventName, handler);
+    return new Observable(push => {
+        element.addEventListener(eventName, push);
+        return _=> element.removeEventListener(eventName, push);
     });
 }
 
@@ -87,9 +70,7 @@ function mouseDrags(element) {
     return switchLatest(moveStreams);
 }
 
-let subscription = mouseDrags(document.body).subscribe({
-
-    next(e) { console.log(`DRAG: <${ e.x }:${ e.y }>`) },
-    throw(x) { console.log(`ERROR: ${ x }`) },
-    return(x) { console.log(`COMPLETE: ${ x }`) },
-});
+let subscription = mouseDrags(document.body).subscribe(
+    val => { console.log(`DRAG: <${ val.x }:${ val.y }>`) },
+    err => { console.log(`ERROR: ${ err }`) },
+    val => { console.log(`COMPLETE: ${ val }`) });
