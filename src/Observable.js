@@ -69,6 +69,16 @@ function getMethod(obj, key) {
     return value;
 }
 
+function extractMethod(obj, key) {
+
+    let method = getMethod(obj, key);
+
+    if (!method)
+        throw new TypeError(value + " is not a function");
+
+    return (...args) => method.call(obj, ...args);
+}
+
 function closeSubscription(observer) {
 
     observer._observer = undefined;
@@ -200,7 +210,7 @@ export class Observable {
                     x => subscriptionComplete(subscription, x));
 
                 if (cleanup != null && typeof cleanup !== "function")
-                    throw new TypeError(cleanup + " is not a function");
+                    cleanup = extractMethod(cleanup, "unsubscribe");
 
                 subscription._cleanup = cleanup;
 
@@ -241,21 +251,18 @@ export class Observable {
         if (typeof fn !== "function")
             throw new TypeError(fn + " is not a function");
 
-        return new this.constructor[Symbol.species]((push, error, complete) => {
+        let C = this.constructor[Symbol.species];
 
-            let subscription = this.subscribe(
-                value => {
+        return new C((push, error, complete) => this.subscribe(
+            value => {
 
-                    try { value = fn.call(thisArg, value) }
-                    catch (e) { error(e); return; }
+                try { value = fn.call(thisArg, value) }
+                catch (e) { error(e); return; }
 
-                    push(value);
-                },
-                error,
-                complete);
-
-            return _=> { subscription.unsubscribe() };
-        });
+                push(value);
+            },
+            error,
+            complete));
     }
 
     filter(fn, thisArg = undefined) {
@@ -263,21 +270,18 @@ export class Observable {
         if (typeof fn !== "function")
             throw new TypeError(fn + " is not a function");
 
-        return new this.constructor[Symbol.species]((push, error, complete) => {
+        let C = this.constructor[Symbol.species];
 
-            let subscription = this.subscribe(
-                value => {
+        return new C((push, error, complete) => this.subscribe(
+            value => {
 
-                    try { if (!fn.call(thisArg, value)) return { done: false } }
-                    catch (e) { error(e); return; }
+                try { if (!fn.call(thisArg, value)) return { done: false } }
+                catch (e) { error(e); return; }
 
-                    push(value);
-                },
-                error,
-                complete);
-
-            return _=> { subscription.unsubscribe() };
-        });
+                push(value);
+            },
+            error,
+            complete));
     }
 
     static from(x) {
@@ -299,11 +303,7 @@ export class Observable {
             if (observable.constructor === C)
                 return observable;
 
-            return new C((...args) => {
-
-                let subscription = observable.subscribe(...args);
-                return _=> { subscription.unsubscribe() };
-            });
+            return new C((...args) => observable.subscribe(...args));
         }
 
         method = getMethod(x, Symbol.iterator);

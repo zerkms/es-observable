@@ -1,3 +1,5 @@
+import { Observable } from "../src/Observable.js";
+
 // A sequence of token objects
 const TOKENS = [
 
@@ -11,13 +13,7 @@ const TOKENS = [
 // Returns an observable sequence of token objects
 function tokenStream() {
 
-    return new Observable(sink => {
-
-        for (let t of TOKENS)
-            sink.next(t);
-
-        sink.return();
-    });
+    return Observable.from(TOKENS);
 }
 
 // Returns an observable which outputs an AST from an input observable of token objects
@@ -79,33 +75,32 @@ function parse(tokenStream) {
         return ast;
     };
 
-    return new Observable(sink => {
+    return new Observable((push, error, complete) => {
 
         let generator = start();
         generator.next();
 
-        return tokenStream.subscribe({
+        function next(value) {
 
-            next(x) {
+            let result;
 
-                let result;
+            try { result = generator.next(value) }
+            catch (x) { error(x); return; }
 
-                try { result = generator.next(x) }
-                catch (x) { return sink.throw(x) }
+            if (result.done)
+                complete(result.value);
+        }
 
-                if (result.done)
-                    sink.return(result.value);
+        let subscription = tokenStream.subscribe(
+            next,
+            error,
+            _=> { next({ type: "EOF" }) });
 
-                return result;
-            },
-
-            throw(x) { return sink.throw(x) },
-            return() { return this.next({ type: "EOF" }) },
-        });
+        return _=> { subscription.unsubscribe() };
     });
 }
 
-parse(tokenStream()).subscribe({
-    return(ast) { console.log(ast) },
-    throw(error) { console.log(error) },
-});
+parse(tokenStream()).subscribe(
+    _=> {},
+    err => console.log(err),
+    ast => console.log(ast));
