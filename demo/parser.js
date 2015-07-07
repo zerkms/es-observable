@@ -75,32 +75,29 @@ function parse(tokenStream) {
         return ast;
     };
 
-    return new Observable((push, error, complete) => {
+    return new Observable((next, error, complete) => {
 
         let generator = start();
         generator.next();
 
-        function next(value) {
+        function nextToken(value) {
 
             let result;
 
             try { result = generator.next(value) }
             catch (x) { error(x); return; }
 
-            if (result.done)
-                complete(result.value);
+            if (result.done) {
+                next(result.value);
+                complete();
+            }
         }
 
-        let subscription = tokenStream.subscribe(
-            next,
+        return tokenStream.subscribe(
+            nextToken,
             error,
-            _=> { next({ type: "EOF" }) });
-
-        return _=> { subscription.unsubscribe() };
+            _=> nextToken({ type: "EOF" }));
     });
 }
 
-parse(tokenStream()).subscribe(
-    _=> {},
-    err => console.log(err),
-    ast => console.log(ast));
+parse(tokenStream()).subscribe(ast => console.log(ast), err => console.log(err));

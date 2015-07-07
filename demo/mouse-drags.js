@@ -22,16 +22,14 @@ function switchLatest(stream) {
 
         let inner = null;
 
-        let outer = stream.subscribe(
-            value => {
+        let outer = stream.subscribe(value => {
 
-                if (inner)
-                    inner.unsubscribe();
+            if (inner)
+                inner.unsubscribe();
 
-                inner = value.subscribe(next, error);
-            },
-            error,
-            complete);
+            inner = value.subscribe(next, error);
+
+        }, error, complete);
 
         return _=> {
 
