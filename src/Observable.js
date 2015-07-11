@@ -102,10 +102,21 @@ function subscriptionNext(subscription) {
             case "initializing":
                 throw new Error("Subscription initializing");
             case "completed":
-                return;
+                return undefined;
         }
 
-        subscription._onNext.call(undefined, value);
+        if (!subscription._onNext)
+            return undefined;
+
+        try {
+
+            return subscription._onNext.call(undefined, value);
+
+        } catch (x) {
+
+            disposeSubscription(subscription);
+            throw x;
+        }
     };
 }
 
@@ -127,7 +138,7 @@ function subscriptionError(subscription) {
             if (!subscription._onError)
                 throw value;
 
-            subscription._onError.call(undefined, value);
+            return subscription._onError.call(undefined, value);
 
         } finally {
 
@@ -144,7 +155,7 @@ function subscriptionComplete(subscription) {
             case "initializing":
                 throw new Error("Subscription initializing");
             case "completed":
-                return;
+                return undefined;
         }
 
         subscription._state = "completed";
@@ -152,9 +163,9 @@ function subscriptionComplete(subscription) {
         try {
 
             if (!subscription._onComplete)
-                return;
+                return undefined;
 
-            subscription._onComplete.call(undefined, value);
+            return subscription._onComplete.call(undefined, value);
 
         } finally {
 
@@ -167,7 +178,7 @@ class Subscription {
 
     constructor(onNext, onError, onComplete) {
 
-        if (typeof onNext !== "function")
+        if (onNext != null && typeof onNext !== "function")
             throw new TypeError(onNext + " is not a function");
 
         if (onError != null && typeof onError !== "function")
@@ -268,11 +279,18 @@ export class Observable {
             // is complete.
             enqueueJob(_=> {
 
-                // TODO:  Any errors which occur while getting the next value
-                // should be sent to the observer
-                for (let item of method.call(x)) {
-                    if (stop) return;
-                    next(item);
+                try {
+
+                    for (let item of method.call(x)) {
+
+                        if (stop) return;
+                        next(item);
+                    }
+
+                } catch (x) {
+
+                    error(x);
+                    return;
                 }
 
                 complete();
@@ -292,8 +310,6 @@ export class Observable {
 
             enqueueJob(_=> {
 
-                // TODO:  Any errors which occur while getting the next value
-                // should be sent to the observer
                 for (let i = 0; i < items.length; ++i) {
                     if (stop) return;
                     next(items[i]);
