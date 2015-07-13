@@ -279,6 +279,9 @@ export class Observable {
             // is complete.
             enqueueJob(_=> {
 
+                if (stop)
+                    return;
+
                 try {
 
                     for (let item of method.call(x)) {
